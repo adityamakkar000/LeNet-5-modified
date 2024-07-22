@@ -267,7 +267,7 @@ def one_hot(array):
 MLP = nMLP(learning_rate, 784, 256, 32, 10)
 print(MLP.get_total_params())
 
-for _ in range(n_epochs):
+for _ in range(epochs):
 
   for batch_idx, (example_data, example_target) in enumerate(train_loader):
 
