@@ -580,7 +580,6 @@ def plot_loss(loss_array):
     plt.grid(True)
     plt.show()
 
-
 plot_loss(loss_arr_mlp)
 plot_loss(loss_arr)
 plot_loss(val_loss_arr_mlp)
