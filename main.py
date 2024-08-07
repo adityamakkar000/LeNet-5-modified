@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torchvision
 import matplotlib.pyplot as plt
+import time
 
 'n layer MLP with tanh nonlinearity'
 
@@ -92,257 +93,6 @@ class nMLP:
         return loss
 
 
-def conv(image, kernel, stride, bias=0):
-    batch_size, out_channels, in_channels, image_x, image_y, kernel_x, kernel_y = (
-        image.shape[0],
-        kernel.shape[0],
-        image.shape[1],
-        image.shape[2],
-        image.shape[3],
-        kernel.shape[2],
-        kernel.shape[3]
-    )
-
-    padding_x = kernel_x - 1
-    padding_y = kernel_y - 1
-
-    if padding_x % 2 == 1:
-        padding_x += 1
-    if padding_y % 2 == 1:
-        padding_y += 1
-
-    image_new = np.zeros(
-        (
-            batch_size,
-            out_channels,
-            in_channels,
-            image_x + padding_x,
-            image_y + padding_y
-        )
-    )
-    image_new[
-        :,
-        :,
-        :,
-        int(padding_x / 2) : image_x + int(padding_x / 2),
-        int(padding_y / 2) : image_y + int(padding_y / 2)
-    ] = np.repeat(np.expand_dims(image, axis=1), [out_channels], axis=1)
-
-    conv_x, conv_y = (
-        int((image_x + padding_x - kernel_x) / stride) + 1,
-        int((image_y + padding_y - kernel_y) / stride) + 1
-    )
-
-    ans = np.zeros((batch_size, out_channels, in_channels, conv_x, conv_y))
-
-    for x in range(conv_x):
-        for y in range(conv_y):
-            current_conv = image_new[
-                :,
-                :,
-                :,
-                x * stride : x * stride + kernel_x,
-                y * stride : y * stride + kernel_y
-            ]
-
-            ans[:, :, :, x, y] += np.sum(
-                (kernel * current_conv).reshape(
-                    batch_size, out_channels, in_channels, -1
-                ),
-                axis=-1
-            )
-
-    ans = np.sum(ans, axis=2)  # sum along channels
-
-    ans = ans + bias
-    return ans
-
-
-def inverse_conv(image, dConv, kernel, stride):
-    dKernel = np.zeros((kernel.shape))
-
-    batch_size, out_channels, in_channels, image_x, image_y, kernel_x, kernel_y = (
-        image.shape[0],
-        kernel.shape[0],
-        kernel.shape[1],
-        image.shape[2],
-        image.shape[3],
-        kernel.shape[2],
-        kernel.shape[3]
-    )
-
-    dConv = np.repeat(np.expand_dims(dConv, axis=2), [in_channels], axis=2)
-    image = np.repeat(np.expand_dims(image, axis=1), [out_channels], axis=1)
-
-    padding_x = kernel_x - 1
-    padding_y = kernel_y - 1
-
-    if padding_x % 2 == 1:
-        padding_x += 1
-    if padding_y % 2 == 1:
-        padding_y += 1
-
-    image_new = np.zeros(
-        (
-            batch_size,
-            out_channels,
-            in_channels,
-            image_x + padding_x,
-            image_y + padding_y
-        )
-    )
-    image_new[
-        :,
-        :,
-        :,
-        int(padding_x / 2) : image_x + int(padding_x / 2),
-        int(padding_y / 2) : image_y + int(padding_y / 2)
-    ] = image
-
-    conv_x, conv_y = (
-        int((image_x + padding_x - kernel_x) / stride) + 1,
-        int((image_y + padding_y - kernel_y) / stride) + 1
-    )
-
-    for x in range(conv_x):
-        for y in range(conv_y):
-            current_conv = image_new[
-                :,
-                :,
-                :,
-                x * stride : x * stride + kernel_x,
-                y * stride : y * stride + kernel_y
-            ]
-            dCurrent_conv = (
-                np.expand_dims(dConv[:, :, :, x, y], axis=(3, 4)) * current_conv
-            )
-            dKernel += np.sum(dCurrent_conv, axis=0)
-
-    return dKernel
-
-
-def inverse_conv_image(dConv, kernel, stride):
-    batch_size, out_channels, in_channels, image_x, image_y, kernel_x, kernel_y = (
-        dConv.shape[0],
-        kernel.shape[0],
-        kernel.shape[1],
-        dConv.shape[2],
-        dConv.shape[3],
-        kernel.shape[2],
-        kernel.shape[3]
-    )
-
-    padding_x = kernel_x - 1
-    padding_y = kernel_y - 1
-
-    if padding_x % 2 == 1:
-        padding_x += 1
-    if padding_y % 2 == 1:
-        padding_y += 1
-
-    dImage = np.zeros(
-        (
-            batch_size,
-            out_channels,
-            in_channels,
-            image_x + padding_x,
-            image_y + padding_y
-        )
-    )
-    dConv = np.repeat(np.expand_dims(dConv, axis=2), [in_channels], axis=2)
-
-    conv_x, conv_y = (
-        int((image_x + padding_x - kernel_x) / stride) + 1,
-        int((image_y + padding_y - kernel_y) / stride) + 1
-    )
-
-    for x in range(conv_x):
-        for y in range(conv_y):
-            dCurrentTile = np.tile(dConv[:, :, :, x, y], (kernel_x, kernel_y)).reshape(
-                batch_size, out_channels, in_channels, kernel_x, kernel_y
-            )
-            dCurrentConv = dCurrentTile * kernel
-            dImage[
-                :,
-                :,
-                :,
-                x * stride : x * stride + kernel_x,
-                y * stride : y * stride + kernel_y
-            ] = dCurrentConv
-
-    dImageWithoutPadding = dImage[
-        :,
-        :,
-        :,
-        int(padding_x / 2) : image_x + int(padding_x / 2),
-        int(padding_y / 2) : image_y + int(padding_y / 2)
-    ]
-    return np.sum(dImageWithoutPadding, axis=1)
-
-
-def pool(image, kernel_shape):
-    """Average pooling with kernel striding"""
-
-    batch_size, in_channels, image_x, image_y, kernel_x, kernel_y = (
-        image.shape[0],
-        image.shape[1],
-        image.shape[2],
-        image.shape[3],
-        kernel_shape[0],
-        kernel_shape[1]
-    )
-
-    kernel = 0.25 * np.ones((in_channels, kernel_x, kernel_y))
-
-    conv_x, conv_y = (
-        int((image_x - kernel_x) / kernel_x) + 1,
-        int((image_y - kernel_y) / kernel_y) + 1
-    )
-
-    ans = np.zeros((batch_size, in_channels, conv_x, conv_y))
-
-    for x in range(conv_x):
-        for y in range(conv_y):
-            current_conv = image[
-                :,
-                :,
-                x * kernel_x : (x + 1) * kernel_x,
-                y * kernel_y : (y + 1) * kernel_y
-            ]
-            ans[:, :, x, y] = np.sum(
-                (current_conv * kernel).reshape(batch_size, in_channels, -1), axis=-1
-            )
-
-    return ans
-
-
-def inverse_pool(image, kernel_shape):
-    batch_size, in_channels, image_x, image_y, kernel_x, kernel_y = (
-        image.shape[0],
-        image.shape[1],
-        image.shape[2],
-        image.shape[3],
-        kernel_shape[0],
-        kernel_shape[1]
-    )
-
-    ans = np.zeros((batch_size, in_channels, image_x * kernel_x, image_y * kernel_y))
-
-    for x in range(0, image_x, kernel_x):
-        for y in range(0, image_y, kernel_y):
-            current_tile = np.tile(image[:, :, x, y], kernel_shape).reshape(
-                batch_size, in_channels, kernel_x, kernel_y
-            )
-            ans[
-                :,
-                :,
-                x * kernel_x : (x + 1) * kernel_x,
-                y * kernel_y : (y + 1) * kernel_y
-            ] = (0.25 * current_tile)
-
-    return ans
-
-
 class CNN:
     def __init__(
         self,
@@ -380,6 +130,115 @@ class CNN:
         self.MLP = nMLP(*MLP_params)
 
     def __call__(self, x):
+        def conv(image, kernel, stride, bias=0):
+            (
+                batch_size,
+                out_channels,
+                in_channels,
+                image_x,
+                image_y,
+                kernel_x,
+                kernel_y
+            ) = (
+                image.shape[0],
+                kernel.shape[0],
+                image.shape[1],
+                image.shape[2],
+                image.shape[3],
+                kernel.shape[2],
+                kernel.shape[3]
+            )
+
+            padding_x = kernel_x - 1
+            padding_y = kernel_y - 1
+
+            if padding_x % 2 == 1:
+                padding_x += 1
+            if padding_y % 2 == 1:
+                padding_y += 1
+
+            image_new = np.zeros(
+                (
+                    batch_size,
+                    out_channels,
+                    in_channels,
+                    image_x + padding_x,
+                    image_y + padding_y
+                )
+            )
+            image_new[
+                :,
+                :,
+                :,
+                int(padding_x / 2) : image_x + int(padding_x / 2),
+                int(padding_y / 2) : image_y + int(padding_y / 2)
+            ] = np.repeat(np.expand_dims(image, axis=1), [out_channels], axis=1)
+
+            conv_x, conv_y = (
+                int((image_x + padding_x - kernel_x) / stride) + 1,
+                int((image_y + padding_y - kernel_y) / stride) + 1
+            )
+
+            ans = np.zeros((batch_size, out_channels, in_channels, conv_x, conv_y))
+
+            for x in range(conv_x):
+                for y in range(conv_y):
+                    current_conv = image_new[
+                        :,
+                        :,
+                        :,
+                        x * stride : x * stride + kernel_x,
+                        y * stride : y * stride + kernel_y
+                    ]
+
+                    ans[:, :, :, x, y] += np.sum(
+                        (kernel * current_conv).reshape(
+                            batch_size, out_channels, in_channels, -1
+                        ),
+                        axis=-1
+                    )
+
+            ans = np.sum(ans, axis=2)  # sum along channels
+
+            ans = ans + bias
+            return ans
+
+        def pool(image, kernel_shape):
+            """Average pooling with kernel striding"""
+
+            batch_size, in_channels, image_x, image_y, kernel_x, kernel_y = (
+                image.shape[0],
+                image.shape[1],
+                image.shape[2],
+                image.shape[3],
+                kernel_shape[0],
+                kernel_shape[1]
+            )
+
+            kernel = 0.25 * np.ones((in_channels, kernel_x, kernel_y))
+
+            conv_x, conv_y = (
+                int((image_x - kernel_x) / kernel_x) + 1,
+                int((image_y - kernel_y) / kernel_y) + 1
+            )
+
+            ans = np.zeros((batch_size, in_channels, conv_x, conv_y))
+
+            for x in range(conv_x):
+                for y in range(conv_y):
+                    current_conv = image[
+                        :,
+                        :,
+                        x * kernel_x : (x + 1) * kernel_x,
+                        y * kernel_y : (y + 1) * kernel_y
+                    ]
+                    ans[:, :, x, y] = np.sum(
+                        (current_conv * kernel).reshape(batch_size, in_channels, -1),
+                        axis=-1
+                    )
+
+            return ans
+
         # conv layers
         self.layers = []
         self.layers.append(x)
@@ -401,6 +260,170 @@ class CNN:
         return final_conv
 
     def backward(self, y_true, train_loss=True):
+        def inverse_conv(image, dConv, kernel, stride):
+            dKernel = np.zeros((kernel.shape))
+
+            (
+                batch_size,
+                out_channels,
+                in_channels,
+                image_x,
+                image_y,
+                kernel_x,
+                kernel_y
+            ) = (
+                image.shape[0],
+                kernel.shape[0],
+                kernel.shape[1],
+                image.shape[2],
+                image.shape[3],
+                kernel.shape[2],
+                kernel.shape[3]
+            )
+
+            dConv = np.repeat(np.expand_dims(dConv, axis=2), [in_channels], axis=2)
+            image = np.repeat(np.expand_dims(image, axis=1), [out_channels], axis=1)
+
+            padding_x = kernel_x - 1
+            padding_y = kernel_y - 1
+
+            if padding_x % 2 == 1:
+                padding_x += 1
+            if padding_y % 2 == 1:
+                padding_y += 1
+
+            image_new = np.zeros(
+                (
+                    batch_size,
+                    out_channels,
+                    in_channels,
+                    image_x + padding_x,
+                    image_y + padding_y
+                )
+            )
+            image_new[
+                :,
+                :,
+                :,
+                int(padding_x / 2) : image_x + int(padding_x / 2),
+                int(padding_y / 2) : image_y + int(padding_y / 2)
+            ] = image
+
+            conv_x, conv_y = (
+                int((image_x + padding_x - kernel_x) / stride) + 1,
+                int((image_y + padding_y - kernel_y) / stride) + 1
+            )
+
+            for x in range(conv_x):
+                for y in range(conv_y):
+                    current_conv = image_new[
+                        :,
+                        :,
+                        :,
+                        x * stride : x * stride + kernel_x,
+                        y * stride : y * stride + kernel_y
+                    ]
+                    dCurrent_conv = (
+                        np.expand_dims(dConv[:, :, :, x, y], axis=(3, 4)) * current_conv
+                    )
+                    dKernel += np.sum(dCurrent_conv, axis=0)
+
+            return dKernel
+
+        def inverse_conv_image(dConv, kernel, stride):
+            (
+                batch_size,
+                out_channels,
+                in_channels,
+                image_x,
+                image_y,
+                kernel_x,
+                kernel_y
+            ) = (
+                dConv.shape[0],
+                kernel.shape[0],
+                kernel.shape[1],
+                dConv.shape[2],
+                dConv.shape[3],
+                kernel.shape[2],
+                kernel.shape[3]
+            )
+
+            padding_x = kernel_x - 1
+            padding_y = kernel_y - 1
+
+            if padding_x % 2 == 1:
+                padding_x += 1
+            if padding_y % 2 == 1:
+                padding_y += 1
+
+            dImage = np.zeros(
+                (
+                    batch_size,
+                    out_channels,
+                    in_channels,
+                    image_x + padding_x,
+                    image_y + padding_y
+                )
+            )
+            dConv = np.repeat(np.expand_dims(dConv, axis=2), [in_channels], axis=2)
+
+            conv_x, conv_y = (
+                int((image_x + padding_x - kernel_x) / stride) + 1,
+                int((image_y + padding_y - kernel_y) / stride) + 1
+            )
+
+            for x in range(conv_x):
+                for y in range(conv_y):
+                    dCurrentTile = np.tile(
+                        dConv[:, :, :, x, y], (kernel_x, kernel_y)
+                    ).reshape(batch_size, out_channels, in_channels, kernel_x, kernel_y)
+                    dCurrentConv = dCurrentTile * kernel
+                    dImage[
+                        :,
+                        :,
+                        :,
+                        x * stride : x * stride + kernel_x,
+                        y * stride : y * stride + kernel_y
+                    ] = dCurrentConv
+
+            dImageWithoutPadding = dImage[
+                :,
+                :,
+                :,
+                int(padding_x / 2) : image_x + int(padding_x / 2),
+                int(padding_y / 2) : image_y + int(padding_y / 2)
+            ]
+            return np.sum(dImageWithoutPadding, axis=1)
+
+        def inverse_pool(image, kernel_shape):
+            batch_size, in_channels, image_x, image_y, kernel_x, kernel_y = (
+                image.shape[0],
+                image.shape[1],
+                image.shape[2],
+                image.shape[3],
+                kernel_shape[0],
+                kernel_shape[1]
+            )
+
+            ans = np.zeros(
+                (batch_size, in_channels, image_x * kernel_x, image_y * kernel_y)
+            )
+
+            for x in range(0, image_x, kernel_x):
+                for y in range(0, image_y, kernel_y):
+                    current_tile = np.tile(image[:, :, x, y], kernel_shape).reshape(
+                        batch_size, in_channels, kernel_x, kernel_y
+                    )
+                    ans[
+                        :,
+                        :,
+                        x * kernel_x : (x + 1) * kernel_x,
+                        y * kernel_y : (y + 1) * kernel_y
+                    ] = (0.25 * current_tile)
+
+            return ans
+
         loss = self.MLP.backward(y_true, print_loss=False, train=train_loss)
         if train_loss == False:
             return loss
@@ -453,8 +476,8 @@ class CNN:
         return total_params
 
 
-epochs = 3
-batch_size_train = 64
+epochs = 10
+batch_size_train = 256
 batch_size_test = 1000
 learning_rate = 0.01
 
@@ -462,7 +485,7 @@ train_loader = torch.utils.data.DataLoader(
     torchvision.datasets.MNIST(
         root='./files',
         train=True,
-        download=False,
+        download=True,
         transform=torchvision.transforms.Compose(
             [
                 torchvision.transforms.ToTensor(),
@@ -478,7 +501,7 @@ test_loader = torch.utils.data.DataLoader(
     torchvision.datasets.MNIST(
         root='./files',
         train=False,
-        download=False,
+        download=True,
         transform=torchvision.transforms.Compose(
             [
                 torchvision.transforms.ToTensor(),
@@ -505,6 +528,7 @@ print('MLP total params: ', MLP.get_total_params())
 loss_arr_mlp = []
 val_loss_arr_mlp = []
 for _ in range(epochs):
+    start = time.time()
     for batch_idx, (example_data, example_target) in enumerate(train_loader):
         example_data = (
             example_data.squeeze(dim=1).numpy().reshape(example_target.shape[0], -1)
@@ -526,7 +550,16 @@ for _ in range(epochs):
         val_loss.append(loss)
     mean_loss = np.mean(val_loss)
     val_loss_arr_mlp.append(mean_loss)
-    print('epoch ', _, 'loss ', mean_loss)
+    end = time.time() - start
+    print(
+        'epoch ',
+        _,
+        'loss ',
+        str(round(mean_loss, 4)),
+        ' time for epoch ',
+        str(round(end, 2)),
+        's'
+    )
 
 
 CNN_params = {
@@ -548,6 +581,7 @@ print('CNN total params: ', leNet.get_total_params())
 loss_arr_cnn = []
 val_loss_arr_cnn = []
 for _ in range(epochs):
+    start = time.time()
     for batch_idx, (example_data, example_target) in enumerate(train_loader):
         example_data = example_data.squeeze(dim=1).numpy()
         example_target = one_hot(example_target.numpy())
@@ -568,7 +602,16 @@ for _ in range(epochs):
         val_loss.append(loss)
     mean_loss = np.mean(val_loss)
     val_loss_arr_cnn.append(mean_loss)
-    print('epoch ', _, 'loss ', mean_loss)
+    end = time.time() - start
+    print(
+        'epoch ',
+        _,
+        'loss ',
+        str(round(mean_loss, 4)),
+        ' time for epoch',
+        str(round(end, 2)),
+        's'
+    )
 
 
 def plot_loss(loss_array):
@@ -580,7 +623,8 @@ def plot_loss(loss_array):
     plt.grid(True)
     plt.show()
 
+
 plot_loss(loss_arr_mlp)
-plot_loss(loss_arr)
+plot_loss(loss_arr_cnn)
 plot_loss(val_loss_arr_mlp)
 plot_loss(val_loss_arr_cnn)
