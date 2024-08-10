@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class nMLP:
     def __init__(self, learning_rate, *dims):
         self.numLayers = len(dims) - 1  # numLayers - 1
@@ -42,7 +43,7 @@ class nMLP:
     def backward(self, y_true, print_loss=False, train=True):
         def CCE(predictions, y_true):
             # assuming y_true is in the form of 1 hot embeddings
-            loss = -1 * np.sum(y_true * np.log(predictions), axis=(0,1))
+            loss = -1 * np.sum(y_true * np.log(predictions), axis=(0, 1))
             return loss
 
         def MSE(predictions, y_true):
@@ -75,7 +76,7 @@ class nMLP:
             self.dLayers[l] = (self.dLayers[l + 1] @ self.layerWeights[l + 1]) * (
                 1 - (self.layers[l + 1]) ** 2
             )
-        self.prev = self.dLayers[0] @ self.layerWeights[0] * (1 - (self.layers[0]) ** 2)
+        self.prev = self.dLayers[0] @ self.layerWeights[0]
 
         for l in range(0, self.numLayers):
             self.dW[l] = (self.dLayers[l].T) @ self.layers[l]

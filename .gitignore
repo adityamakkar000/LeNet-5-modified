@@ -2,3 +2,5 @@
 *.pyc
 /models/files/*
 *.ipynb
+/venv/*
+/venv/

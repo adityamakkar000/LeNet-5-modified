@@ -24,14 +24,14 @@ def plot_loss(loss_array):
     plt.show()
 
 
-def CNNTrain(train_loader, test_loader, learning_rate, epochs, dims):
-    dims = ((14 * 14 * 3), *dims)
+def CNNTrain(train_loader, test_loader, learning_rate, epochs, dims, cnn):
+    dims = (int((28/(2**(len(cnn["out_channels"]))))**2  * cnn["out_channels"][-1]), *dims)
     CNN_params = {
         "stride": 1,
-        "pool_shape": [(2, 2), (2,2)],
-        "kernel_size": [(5, 5), (5,5)],
+        "pool_shape": [(2, 2) for i in cnn["out_channels"]],
+        "kernel_size": [(i, i) for i in cnn["kernel_sizes"]],
         "in_channels": [1],
-        "out_channels": [3,6],
+        "out_channels": [*cnn["out_channels"]],
         "learning_rate": learning_rate,
         "MLP_params": (learning_rate, *dims),
     }
@@ -79,7 +79,7 @@ def CNNTrain(train_loader, test_loader, learning_rate, epochs, dims):
     plot_loss(val_loss_arr_cnn)
 
 
-def MLPTrain(train_loader, test_loader, learning_rate, epochs, dims):
+def MLPTrain(train_loader, test_loader, learning_rate, epochs, dims, cnn):
     dims = (784, *dims)
 
     MLP = nMLP(learning_rate, *dims)

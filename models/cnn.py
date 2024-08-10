@@ -38,6 +38,12 @@ class CNN:
 
         self.MLP = nMLP(*MLP_params)
 
+        self.layers_length = len(self.kernels)
+        self.dKernel = [i for i in range(self.layers_length)]
+        self.dBias = [i for i in range(self.layers_length)]
+        self.intermediate = [i for i in range(self.layers_length)]
+        self.intermediate_activation = [i for i in range(self.layers_length)]
+
     def __call__(self, x):
         def conv(image, kernel, stride, bias=0):
             (
@@ -153,12 +159,14 @@ class CNN:
         self.layers.append(x)
 
         # len(self.kernels) represents the number of conv layers
-        for convLayer in range(len(self.kernels)):
+        for convLayer in range(self.layers_length):
             x = self.layers[convLayer]
             kernels = self.kernels[convLayer]
             biases = self.bias[convLayer]
             current_conv_layer = conv(x, kernels, self.stride, biases)
+            self.intermediate[convLayer] = current_conv_layer
             current_conv_layer = current_conv_layer * (current_conv_layer > 0)
+            self.intermediate_activation[convLayer] = current_conv_layer
             current_conv_layer = pool(current_conv_layer, self.pool_shape[convLayer])
             self.layers.append(current_conv_layer)
 
@@ -169,6 +177,7 @@ class CNN:
         return final_conv
 
     def backward(self, y_true, train_loss=True):
+
         def inverse_conv(image, dConv, kernel, stride):
             dKernel = np.zeros((kernel.shape))
 
@@ -284,17 +293,16 @@ class CNN:
 
             for x in range(conv_x):
                 for y in range(conv_y):
-                    dCurrentTile = np.tile(
-                        dConv[:, :, :, x, y], (kernel_x, kernel_y)
-                    ).reshape(batch_size, out_channels, in_channels, kernel_x, kernel_y)
-                    dCurrentConv = dCurrentTile * kernel
+                    dCurrentConv = (
+                        np.expand_dims(dConv[:, :, :, x, y], axis=(3, 4)) * kernel
+                    )
                     dImage[
                         :,
                         :,
                         :,
                         x * stride : x * stride + kernel_x,
                         y * stride : y * stride + kernel_y,
-                    ] = dCurrentConv
+                    ] += dCurrentConv
 
             dImageWithoutPadding = dImage[
                 :,
@@ -306,6 +314,7 @@ class CNN:
             return np.sum(dImageWithoutPadding, axis=1)
 
         def inverse_pool(image, kernel_shape):
+
             batch_size, in_channels, image_x, image_y, kernel_x, kernel_y = (
                 image.shape[0],
                 image.shape[1],
@@ -315,23 +324,19 @@ class CNN:
                 kernel_shape[1],
             )
 
-            ans = np.zeros(
-                (batch_size, in_channels, image_x * kernel_x, image_y * kernel_y)
-            )
+            ans_x, ans_y = image_x * kernel_x, image_y * kernel_y
 
-            for x in range(0, image_x, kernel_x):
-                for y in range(0, image_y, kernel_y):
-                    current_tile = np.tile(image[:, :, x, y], kernel_shape).reshape(
-                        batch_size, in_channels, kernel_x, kernel_y
-                    )
+            ans = np.zeros((batch_size, in_channels, ans_x, ans_y))
+
+            for x in range(0, image_x):
+                for y in range(0, image_y):
+
                     ans[
                         :,
                         :,
                         x * kernel_x : (x + 1) * kernel_x,
                         y * kernel_y : (y + 1) * kernel_y,
-                    ] = (
-                        0.25 * current_tile
-                    )
+                    ] = 0.25 * np.expand_dims(image[:, :, x, y], axis=(2, 3))
 
             return ans
 
@@ -343,28 +348,21 @@ class CNN:
         batch_size = self.layers[-1].shape[0]
         dPool = dFlatten.reshape(self.layers[-1].shape)
 
-        loss = self.MLP.backward(y_true, print_loss=False)
-        dFlatten = self.MLP.prev
-        batch_size = self.layers[-1].shape[0]
-        dPool = dFlatten.reshape(self.layers[-1].shape)
+        for i in range(self.layers_length, 0, -1):
 
-        for i in range(len(self.layers) - 1, 0, -1):
             dRelu = inverse_pool(dPool, self.pool_shape[i - 1])
-            current_layer = inverse_pool(self.layers[i], self.pool_shape[i - 1])
-            dConv = dRelu * (1.0 * (current_layer > 0))
-
-            dk = inverse_conv(
-                self.layers[i - 1], dConv, self.kernels[i - 1], stride=self.stride
-            )
-            db = np.expand_dims(
-                np.sum(np.sum(dConv, axis=0).reshape(dConv.shape[1], -1), axis=-1),
-                axis=(1, 2),
-            ) * np.ones(self.bias[i - 1].shape)
-
-            self.kernels[i - 1] = self.kernels[i - 1] - self.lr * np.clip(dk, -1, 1)
-            self.bias[i - 1] = self.bias[i - 1] - self.lr * np.clip(db, -1, 1)
+            # dConv = dRelu * (1.0 * (dRelu > 0))
+            dConv = dRelu * (self.intermediate_activation[i - 1] > 0)
 
             dPool = inverse_conv_image(dConv, self.kernels[i - 1], stride=self.stride)
+
+            self.dKernel[i - 1] = inverse_conv(
+                self.layers[i - 1], dConv, self.kernels[i - 1], stride=self.stride
+            )
+            self.dBias[i - 1] = np.sum(dConv, axis=(0, 2, 3), keepdims=True)
+
+            self.kernels[i - 1] = self.kernels[i - 1] - self.lr * self.dKernel[i - 1]
+            self.bias[i - 1] = self.bias[i - 1] - self.lr * self.dBias[i - 1]
 
         return loss
 
