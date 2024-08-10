@@ -11,7 +11,7 @@ pip install -r req.txt
 
 ## Run
 
-To run use the main file alongside the args for the corseponding model
+To run use the main file alongside the args for the corresponding model
 
 ### MLP
 
@@ -40,4 +40,8 @@ python3 main.py
  -epochs
  -batch_size
 
-``` 
+```
+
+## File Structure
+
+In the ``` models ``` folder, are the CNN and MLP implementation. In the ```models\torchmodels``` are torch equivalent to verify the accuracy. In the ```train``` folder the traning loops are implemented in the ```train.py``` folder.
