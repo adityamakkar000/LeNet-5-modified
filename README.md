@@ -44,4 +44,4 @@ python3 main.py
 
 ## File Structure
 
-In the ``` models ``` folder, are the CNN and MLP implementation. In the ```models\torchmodels``` are torch equivalent to verify the accuracy. In the ```train``` folder the traning loops are implemented in the ```train.py``` folder.
+In the ``` models ``` folder, are the CNN and MLP implementation. In the ```models\torchmodels.py``` are torch equivalent to verify the accuracy. In the ```train``` folder the traning loops are implemented in the ```train.py``` folder.
