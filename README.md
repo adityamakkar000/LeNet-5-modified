@@ -4,7 +4,7 @@ A pure numpy implemenation of LeNet-5 (slightly modified). Forward and backward 
 
 ## Setup
 
-Setup a virutal env and run
+Setup a virtual env and run
 ``` bash
 pip install -r req.txt
 ```
@@ -17,28 +17,28 @@ To run use the main file alongside the args for the corresponding model
 
 To run an mlp use
 
-```python
+```bash
 python3 main.py
   -model mlp
   -dims 64,32 # the dims of the hidden layers
-  -lr
-  -epochs
-  -batch_size
+  -lr $lr
+  -epochs $epochs
+  -batch_size $batch_size
 ```
 
 ### CNN
 
 To run a CNN use
 
-```python
+```bash
 python3 main.py
  -model cnn
  -dims 64,32 # the dims of the feed-forward network
  -out_channels 3,6 # out channels for the conv layers
  -kernel_size 5,5 # size of the squared kernels
- -lr
- -epochs
- -batch_size
+ -lr $lr
+ -epochs $epochs
+ -batch_size $batch_size
 
 ```
 
